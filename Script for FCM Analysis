@@ -1,0 +1,1532 @@
+FCM_Analysis <- function(N) {
+  
+  ##### 1. Selecting the working directory and Questions concerning exporting analyzed data.
+  readline(prompt = "Q1. Please press enter to select the directory with all relevant 
+     .csv files and where to export data files of the analyses.")
+  
+  main_directory <- choose.dir()
+  setwd(main_directory)
+  cat("Current working directory: ", main_directory, "\n")
+  
+  subdirectories = list.dirs(main_directory, recursive = FALSE, full.names = TRUE)
+  
+  stakeholdercategories = list.dirs(main_directory, recursive = FALSE, full.names = FALSE)
+  
+  number_of_stakeholdercategories <- length(subdirectories)
+  
+  Q2 <- readline(prompt = "Q2. Please fill in the name of the research area: ")
+  
+  if (nchar(Q2) == 0) {
+    cat("Without a name of the research area the script cannot run. Please fill in the name of the research area.\n")
+    Q2 <- readline(prompt = "Q2. Please fill in the name of the research area: ")
+  } else {
+    
+    cat("Subdirectory titles used as stakeholder categories:\n")
+    
+    for (i in 1:number_of_stakeholdercategories) {
+      cat(i, ": ", stakeholdercategories[i], "\n")
+    }
+    Q3 <- readline(prompt = "Q3. The stakeholder categories are set as seen above. Do you wish 
+          to use these terms or do you want to change them? ('y' to keep terms, 'n' to change them.)")
+    
+    if (tolower(Q3) == "n") {
+      for (i in 1:number_of_stakeholdercategories) {
+        new_name <- readline(paste("Enter a new name for category '", stakeholdercategories[i], "': "))
+        stakeholdercategories[i] <- new_name
+      }
+    } else if (tolower(Q3) != "y") {
+      cat("Invalid input. Please enter 'y' or 'n'.")
+    }
+    
+    cat("Updated Stakeholder Categories:\n")
+    cat(stakeholdercategories, "\n")
+  }
+  
+  Q4 <- readline(prompt = "Q4. Would you like to export seperate tables per SH
+                           with the number of connections? y = yes, n = no:")
+  
+  Q5 <- readline(prompt = "Q5. Would you like to export a table with the sum 
+                           of all the connections made by the SHs? y = yes, n = no:")
+  
+  Q6 <- readline(prompt = "Q6. Would you like to export seperate tables 
+                           per SH with the value per connection? y = yes, n = no:")
+  
+  Q7 <- readline(prompt = "Q7. Would you like to export a table with the aggregate of
+                           all the values of the connections of all SHs? y = yes, n = no:")
+  
+  Q8 <- readline(prompt = "Q8. Would you like to export the individual concept and 
+                           matrix indices of the aggregate of the FCMs? y = yes, n = no:")
+  
+  Q9 <- readline(prompt = "Q9. Would you like to export the concept and 
+                           matrix indices of the aggregate of the FCMs? y = yes, n = no:")
+  
+  Q10 <- readline(prompt = "Q10. Would you like to have a graph of the network? y = yes, n = no:")
+  
+  Q11 <- readline(prompt = "Q11. Values in FCM's are normaly ranged between 0-1. 
+                  Was a different scale used? y = yes, n = no:")
+  
+  if (tolower(Q11) == "y") {
+  scale_used <- readline(prompt ="Q11. What scale was used?")
+  Q11 <- as.numeric(scale_used)
+  }else if (tolower(Q11) == "n") {
+  Q11 <- 1
+  }
+  
+  
+  ##### 2. Loading necessary libraries
+  if (!requireNamespace("writexl", quietly = TRUE)) {
+    install.packages("writexl")
+  }
+  
+  if (!requireNamespace("openxlsx", quietly = TRUE)) {
+    install.packages("openxlsx")
+  }
+  
+  if (!requireNamespace("FCMapper", quietly = TRUE)) {
+    install.packages("FCMapper")
+  }
+  
+  if (!requireNamespace("tidyverse", quietly = TRUE)) {
+    install.packages("tidyverse")
+  }
+  
+  if (!requireNamespace("dplyr", quietly = TRUE)) {
+    install.packages("dplyr")
+  }
+  
+  if (!requireNamespace("clipr", quietly = TRUE)) {
+    install.packages("clipr")
+  }
+  
+  if (!requireNamespace("igraph", quietly = TRUE)) {
+    install.packages("igraph")
+  }
+  
+  library(FCMapper)
+  library(tidyverse)
+  library(dplyr)
+  library(writexl)
+  library(openxlsx)
+  library(igraph)
+  library(clipr)
+  
+  
+  
+  ##### 3. Selecting files 
+  j <- 0
+  
+  while (j <= number_of_stakeholdercategories) {
+    if (j == 0) {
+      setwd(main_directory)
+      cat("Processing main directory:", "\n")
+      
+      files <- list.files(".", pattern='.csv', recursive=TRUE)
+      files <- files[!grepl("value_agg_", files)]
+      
+      number_of_files = length(files)
+      
+      short_names <- gsub(".*/(.*?)\\.csv", "\\1", files)
+      
+      
+      
+      ##### A4. Counting the number of connections in all FCMs
+      ##### A4.1 Making a list with  dataframes of all SHs with the number of connections
+      list_count <- lapply(files, read.csv)
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_count[[i]][is.na(list_count[[i]])] = 0.0
+        list_count[[i]] <- list_count[[i]] %>% mutate_if(is.numeric, ~1 * (. != 0))
+        list_count[[i]] = list_count[[i]][,-1]
+        rownames(list_count[[i]]) = colnames(list_count[[i]])
+        
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_count)) {
+        names(list_count)[i] <- paste0(short_names[i], "_count")
+        
+        i = i + 1
+      }
+      
+      
+      
+      ##### A4.2 Making an aggregate of all the concept names in the FCMs
+      list_colnames <- sapply(list_count, function(x) if(is.data.frame(x)){
+        list(colnames(x))
+      }else{
+        sapply(x, colnames)
+      })
+      
+      concept_names_agg = as.character(unlist(list_colnames))
+      concept_names_agg = unique(concept_names_agg)
+      
+      
+      ##### A4.3 Making a data frame with the sum of all connections in the FCMs
+      ##### A4.3.1 Making a list with dfs with all concept names and number of connections per SH
+      count_agg_list <- list()
+      
+      for (i in 1:length(list_count)) {
+        current_df <- list_count[[i]]
+        count_with_cn <- matrix(0, ncol = length(concept_names_agg), nrow = length(concept_names_agg))
+        colnames(count_with_cn) <- concept_names_agg
+        rownames(count_with_cn) <- concept_names_agg
+        for (x in 1:length(list_colnames[[i]])) {
+          for (y in 1:length(list_colnames[[i]])) {
+            count_with_cn[list_colnames[[i]][x], list_colnames[[i]][y]] <- 
+              current_df[list_colnames[[i]][x], list_colnames[[i]][y]]
+          }
+        }
+        count_agg_list[[i]] <- as.data.frame(count_with_cn)
+        names(count_agg_list)[i] <- paste0(short_names[i],'_count_with_all_cn')
+      }
+      
+      ##### A4.3.2.1 Making a data frame with the sum of all the connections
+      count_with_cn [] <- 0
+      assign(paste0("count_agg_", Q2,"_Total"), count_with_cn)
+      
+      for (i in 1:length(count_agg_list)) {
+        current_df <- count_agg_list[[i]]
+        count_with_cn <- get(paste0("count_agg_", Q2,"_Total"))
+        for (x in 1:nrow(current_df)) {
+          for (y in 1:ncol(current_df)) {
+            rowname <- rownames(current_df)[x]
+            colname <- colnames(current_df)[y]
+            count_with_cn[rowname, colname] <- count_with_cn[rowname, colname] + current_df[x, y]
+          }
+        }
+        assign(paste0("count_agg_", Q2,"_Total"), count_with_cn)
+      }
+      
+      assign(paste0("count_agg_", Q2,"_Total"), as.data.frame(get(paste0("count_agg_", Q2,"_Total"))))
+      
+      ##### A4.3.2.2 Making a data frame with all connections made by SHs
+      nonzero_connections <- which(get(paste0("count_agg_", Q2,"_Total")) != 0, arr.ind = TRUE)
+      
+      rows <- nonzero_connections[, 1]
+      columns <- nonzero_connections[, 2]
+      
+      sending_elements <- names(get(paste0("count_agg_", Q2,"_Total")))[rows]
+      receiving_elements <- names(get(paste0("count_agg_", Q2,"_Total")))[columns]
+      
+      connection_df <- data.frame(
+        Sending_elements = sending_elements,
+        Receiving_elements = receiving_elements,
+        Number_of_Connections = get(paste0("count_agg_", Q2,"_Total"))[nonzero_connections]
+      )
+      
+      connection_df <- connection_df %>%
+        group_by(Sending_elements, Receiving_elements) %>%
+        summarize(Number_of_Connections = sum(Number_of_Connections))
+      
+      
+      ##### A5. Counting the number of connections per element
+      ##### A5.1.1 Counting the number of transmitting connections per element in all FCMs
+      count_agg_N <- get(paste0("count_agg_", Q2,"_Total"))
+      row_sums <- rowSums(count_agg_N)
+      row_sums <- as.data.frame(row_sums)
+      colnames(row_sums) <- 'Number of transmitting connections made by SHs'
+      
+      ##### A5.1.2 Counting the number of transmitting connections per element in the aggregate FCM
+      row_count <- rowSums(count_agg_N > 0)
+      row_count <- as.data.frame(row_count)
+      colnames(row_count) <- 'Number of transmitting connections in aggregate FCM'
+    
+      
+      ##### A5.2.1 Counting the number of receiving connections per element in all FCMs
+      col_sums <- colSums(count_agg_N)
+      col_sums <- as.data.frame(col_sums)
+      colnames(col_sums) <- 'Number of receiving connections made by SHs'
+      
+      ##### A5.2.2 Counting the number of receiving connections per element in the aggregate FCM
+      col_count <- colSums(count_agg_N > 0)
+      col_count <- as.data.frame(col_count)
+      colnames(col_count) <- 'Number of receiving connections in aggregate FCM'
+      
+      
+      ##### A5.3.1 Total sum of connection per element in all FCMs
+      total_sum <- row_sums + col_sums
+      total_sum <- as.data.frame(total_sum)
+      colnames(total_sum) <- 'Total number of connections made by all SHs'
+      
+      ##### A5.3.2 Total sum of connection per element in aggregate FCM
+      total_count <- row_count + col_count
+      total_count <- as.data.frame(total_count)
+      colnames(total_count) <- 'Total number of connections made in aggregate FCM'
+      
+      
+      ##### A5.4 Number of times a element is mentioned by the SHs in the FCMs and also in relative terms
+      word_counts <- table(factor(unlist(list_colnames), levels = unique(unlist(list_colnames))))
+      word_counts <- as.data.frame(word_counts)
+      word_counts <- as.character(word_counts$Freq)
+      word_counts <- as.data.frame(word_counts)
+      rownames(word_counts) = concept_names_agg
+      colnames(word_counts) <- 'Number of times mentioned by stakeholders'
+      
+      rel_word_counts <- table(factor(unlist(list_colnames), levels = unique(unlist(list_colnames))))
+      rel_word_counts <- as.numeric(as.character(rel_word_counts))
+      relative_frequency <- rel_word_counts / number_of_files * 100
+      relative_frequency <- as.data.frame(relative_frequency)
+      rownames(relative_frequency) = concept_names_agg
+      colnames(relative_frequency) <- '% of times mentioned by stakeholders'
+      
+      
+      
+      ##### A6. Making a data frame with all the combined values of connections of all FCMs
+      ##### A6.1.1 Making a list with  data frames of all SHs with the values per connection
+      list_value <- lapply(files, read.csv)
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_value[[i]][is.na(list_value[[i]])] = 0.0
+        list_value[[i]] = list_value[[i]][,-1] * Q11
+        rownames(list_value[[i]]) = colnames(list_value[[i]])
+        
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_value)) {
+        names(list_value)[i] <- paste0(short_names[i])
+        
+        i = i + 1
+      }
+      
+      ##### A6.1.2 Making a data frame with all connections with values made per SH
+      connections_with_values_list <- list()
+      
+      for (i in 1:length(list_value)) {
+        current_df <- list_value[[i]]
+        current_nonzero_connections <- which(current_df != 0, arr.ind = TRUE)
+        sending_elements <- rownames(current_df)[current_nonzero_connections[, 1]]
+        receiving_elements <- colnames(current_df)[current_nonzero_connections[, 2]]
+        values <- current_df[current_nonzero_connections]
+        
+        connections_with_values_df <- data.frame(
+          Sending_elements = sending_elements,
+          Receiving_elements = receiving_elements,
+          Avg_Values = values
+        )
+        
+        connections_with_values_list[[i]] <- connections_with_values_df
+      }
+      
+      
+    
+      ##### A6.2 Making a data frame with the sum of all values in the FCMs
+      ##### A6.2.1 Making a list with dfs with all concept names and values per connection per SH
+      value_agg_list <- list()
+      
+      for (i in 1:length(list_value)) {
+        current_df <- list_value[[i]]
+        value_with_cn <- matrix(0, ncol = length(concept_names_agg), nrow = length(concept_names_agg))
+        colnames(value_with_cn) <- concept_names_agg
+        rownames(value_with_cn) <- concept_names_agg
+        for (x in 1:length(list_colnames[[i]])) {
+          for (y in 1:length(list_colnames[[i]])) {
+            value_with_cn[list_colnames[[i]][x], list_colnames[[i]][y]] <- 
+              current_df[list_colnames[[i]][x], list_colnames[[i]][y]]
+          }
+        }
+        value_agg_list[[i]] <- as.data.frame(value_with_cn)
+        names(value_agg_list)[i] <- paste0('value_with_all_concept_names', i)
+      }
+      
+      ##### A6.2.2 Making a data frame with the sum of all the values divided by the number of mentioning
+      value_with_cn [] <- 0
+      assign(paste0("value_agg_", Q2, "_Total"), value_with_cn)
+      
+      for (i in 1:length(value_agg_list)) {
+        current_df <- value_agg_list[[i]]
+        value_with_cn <- get(paste0("value_agg_", Q2, "_Total"))
+        for (x in 1:nrow(current_df)) {
+          for (y in 1:ncol(current_df)) {
+            rowname <- rownames(current_df)[x]
+            colname <- colnames(current_df)[y]
+            value_with_cn[rowname, colname] <- value_with_cn[rowname, colname] + current_df[x, y]
+          }
+        }
+        assign(paste0("value_agg_", Q2, "_Total"), value_with_cn)
+      }
+      
+      assign(paste0("value_agg_", Q2, "_Total"), as.data.frame(get(paste0("value_agg_", Q2, "_Total"))))
+      
+      value_with_cn <- get(paste0("value_agg_", Q2, "_Total"))
+      count_with_cn <- get(paste0("count_agg_", Q2, "_Total"))
+      
+      result_agg <- value_with_cn / count_with_cn
+      result_agg[is.na(result_agg)] <- 0.0
+      result_agg <- as.matrix(result_agg)
+      assign(paste0("value_agg_", Q2, "_Total"), result_agg)
+      
+      ##### A6.2.3 Making a data frame with all the connections and the total sum of values
+      list_for_sum_con <- list()
+      
+      for (i in 1:length(list_value)) {
+        current_df <- list_value[[i]]
+        current_nonzero_connections <- which(current_df != 0, arr.ind = TRUE)
+        sending_elements <- rownames(current_df)[current_nonzero_connections[, 1]]
+        receiving_elements <- colnames(current_df)[current_nonzero_connections[, 2]]
+        values <- current_df[current_nonzero_connections]
+        
+        connections_with_values_df <- data.frame(
+          Sending_elements = sending_elements,
+          Receiving_elements = receiving_elements,
+          Values = values
+        )
+        
+        list_for_sum_con[[i]] <- connections_with_values_df
+      }    
+      
+      list_for_sum_con <- lapply(list_for_sum_con, function(df) {
+        df$Values <- as.numeric(df$Values)
+        return(df)
+      })
+      
+      df_for_sum_con <- bind_rows(list_for_sum_con)
+      
+      df_sum_con <- df_for_sum_con %>%
+        group_by(Sending_elements, Receiving_elements) %>%
+        summarise(Sum_Values = sum(Values))
+      
+      ##### A6.2.4 Making a data frame with all the connections and the average values
+      nonzero_connections <- which(result_agg != 0, arr.ind = TRUE)
+      
+      rows <- nonzero_connections[, 1]
+      columns <- nonzero_connections[, 2]
+      
+      sending_elements <- rownames(result_agg)[rows]
+      receiving_elements <- colnames(result_agg)[columns]
+      values <- result_agg[nonzero_connections]
+      
+      connections_with_values_df <- data.frame(
+        Sending_elements = sending_elements,
+        Receiving_elements = receiving_elements,
+        Avg_Values = values
+      )
+      
+      connections_with_values_df <- connections_with_values_df %>%
+        group_by(Sending_elements, Receiving_elements)
+      
+      connections_with_values_df <- connections_with_values_df %>%
+        group_by(Sending_elements, Receiving_elements) %>%
+        summarize (Avg_Values = sum(Avg_Values))
+      
+      merged_per_connections <- connection_df %>%
+        left_join(connections_with_values_df, by = c("Sending_elements", "Receiving_elements")) %>%
+        left_join(df_sum_con, by = c("Sending_elements", "Receiving_elements"))
+      merged_per_connections[is.na(merged_per_connections)] <- 0.0  
+      
+      
+      ##### A7. Concept indices and matrix indices of the combined FCM
+      ##### A7.1.1 Defining the correct item for the matrix indices
+      matrix.indices = function(matrix) {
+        Connections = length(which(matrix != 0))
+        Concepts = length(matrix[1,])
+        Density = Connections / (Concepts * (Concepts - 1))
+        Transmitters = length(which(colSums(abs(matrix)) == 0 & rowSums(abs(matrix)) != 0))
+        Receivers = length(which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) != 0))
+        NoConnection = length(which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) == 0))
+        Ordinary = Concepts - Transmitters - Receivers - NoConnection
+        SelfLoops = 0
+        for (i in 1:Concepts) {
+          if (matrix[i, i] != 0) {
+            SelfLoops = SelfLoops + 1
+          }
+        }
+        Connectionsperelement = Connections / length(matrix[1,])
+        
+        Value = c(Concepts, Connections, Density, Receivers, Transmitters,
+                  Ordinary, Connectionsperelement, NoConnection, SelfLoops)
+        Index = c("Number of concepts", "Number of connections", "Connection density", "Number of receivers", "Number of transmitters",
+                  "Number of ordinary", "Connections/element", "Number of no connections", "Number of self loops")
+        return (data.frame(Index, Value))
+      }
+      
+      ##### A7.1.2 Defining the correct items for the concept indices aggregate
+      concept.indices.agg = function(matrix1, matrix2, concept.names) {
+        
+        Outdegreeofavg = rowSums(abs(matrix1))
+        Outdegreeofsum = rowSums(abs(matrix2))
+        PosOutdegreeofsum = rowSums(matrix2 * (matrix2 > 0))
+        NegOutdegreeofsum = rowSums(matrix2 * (matrix2 < 0))
+        Indegreeofavg = colSums(abs(matrix1))
+        Indegreeofsum = colSums(abs(matrix2))
+        PosIndegreeofsum = colSums(matrix2 * (matrix2 > 0))
+        NegIndegreeofsum = colSums(matrix2 * (matrix2 < 0))
+        Centralityofavg = Outdegreeofavg + Indegreeofavg
+        Centralityofsum = Outdegreeofsum + Indegreeofsum
+        PosCentralityofsum = PosOutdegreeofsum + PosIndegreeofsum
+        NegCentralityosum = NegOutdegreeofsum + NegIndegreeofsum
+        Concept = length(matrix1[1,])
+        Transmitter = numeric(length=Concept)
+        Transmitter[which(colSums(abs(matrix1))==0 & rowSums(abs(matrix1))!=0)] = 1
+        Receiver = numeric(length=Concept)
+        Receiver[which(rowSums(abs(matrix1))==0 & colSums(abs(matrix1))!=0)] = 1
+        Ordinary = numeric(length=Concept)
+        Ordinary[which(rowSums(abs(matrix1))!=0 & colSums(abs(matrix1))!=0)] = 1
+        NoConnection = numeric(length=Concept)
+        NoConnection[which(rowSums(abs(matrix1))==0 & colSums(abs(matrix1))==0)] = 1
+        Wordcount = word_counts
+        RelWordcount = relative_frequency
+        NrofTransmitting = row_sums
+        NrofReceiving = col_sums
+        TotalNrofConnections = total_sum
+        
+        Index = c("Concept","Nr.of.times.mentioned","Percentage.of.times.mentioned","Nr.of.transmitting.connections","Outdegree.of.avg",
+                  "Outdegree.of.sum","Pos.Outdegree.of.sum","Neg.Outdree.of.sum","Nr.of.receiving.connections",
+                  "Indegree.of.avg","Indegree.of.sum","Pos.Indegree.of.sum","Neg.Indegree.of.sum","Total.connections",
+                  "Centrality.of.avg","Centrality.of.sum","Pos.Centrality.of.sum","Neg.Centrality.of.sum","Transmitter","Receiver","Ordinary","Not.connected")
+        Values = data.frame(concept.names,Wordcount,RelWordcount,NrofTransmitting,Outdegreeofavg,Outdegreeofsum,PosOutdegreeofsum,
+                            NegOutdegreeofsum,NrofReceiving,Indegreeofavg,Indegreeofsum,PosIndegreeofsum,NegIndegreeofsum,
+                            TotalNrofConnections,Centralityofavg,Centralityofsum,PosCentralityofsum,NegCentralityosum,Transmitter,Receiver,Ordinary,NoConnection)
+        colnames(Values) = Index
+        return (Values)
+        
+      }
+      
+      ##### A7.1.3 Defining the correct items for the concept indices individual
+      concept.indices.ind = function(matrix, concept.names) {
+        Outdegree = rowSums(abs(matrix))
+        Indegree = colSums(abs(matrix))
+        Centrality = Outdegree + Indegree
+        Concept = length(matrix[1,])
+        Transmitter = numeric(length = Concept)
+        Transmitter[which(colSums(abs(matrix)) == 0 & rowSums(abs(matrix)) != 0)] = 1
+        Receiver = numeric(length = Concept)
+        Receiver[which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) != 0)] = 1
+        Ordinary = numeric(length = Concept)
+        Ordinary[which(rowSums(abs(matrix)) != 0 & colSums(abs(matrix)) != 0)] = 1
+        NoConnection = numeric(length = Concept)
+        NoConnection[which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) == 0)] = 1
+        
+        NrofTransmitting = rowSums(matrix != 0)
+        NrofReceiving = colSums(matrix != 0)
+        TotalNrofConnections = NrofTransmitting + NrofReceiving
+        
+        Index = c("Nr.of.transmitting.connections", "Outdegree",
+                  "Nr.of.receiving.connections", "Indegree", "Total.connections", "Centrality",
+                  "Transmitter", "Receiver", "Ordinary", "Not connected")
+        
+        Values = data.frame(NrofTransmitting, Outdegree,
+                            NrofReceiving, Indegree, TotalNrofConnections, Centrality,
+                            Transmitter, Receiver, Ordinary, NoConnection)
+        
+        colnames(Values) = Index
+        return(Values)
+      }
+      
+      ##### A7.2.1 Concept indices of seperate FCMs
+      list_concept_indices <- list()
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_concept_indices[[i]] <- concept.indices.ind(list_value[[i]], colnames(list_value[[i]]))
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_concept_indices)) {
+        names(list_concept_indices)[i] <- paste0(short_names[i])
+        
+        i = i + 1
+      }
+      
+      ##### A7.2.2 Concept indices of the combined FCM
+      value_agg <- get(paste0("value_agg_", Q2, "_Total"))
+      
+      concept_indices_agg = concept.indices.agg(value_agg, value_with_cn,
+                                                colnames(value_agg))
+      concept_indices_agg <- concept_indices_agg[, -1]
+  
+      
+      ##### A7.3.1 Matrix indices of seperate FCMs
+      list_matrix_indices <- list()
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_matrix_indices[[i]] <- matrix.indices(list_value[[i]])
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_matrix_indices)) {
+        names(list_matrix_indices)[i] <- paste0(short_names[i])
+        
+        i = i + 1
+      }
+      
+      ##### A7.3.2 Matrix indices of the combined FCM
+      matrix_indices_agg <- matrix.indices(value_agg)
+      
+      
+      
+      ##### A8. Graph of combined FCM
+      graph.fcm = function (matrix, concept.sizes, concept.names) {
+        
+        matrix.plot = igraph::graph.adjacency(matrix,mode="directed",weighted=T)
+        
+        igraph::V(matrix.plot)$size = concept.sizes * 40
+        
+        
+        igraph::E(matrix.plot)$color = ifelse(igraph::E(matrix.plot)$weight<0,"red","chartreuse3")
+        edge.labels = ifelse(igraph::E(matrix.plot)$weight<0,"-","+")
+        
+        edge.curved = rep(0,length(igraph::E(matrix.plot)))
+        i=1
+        for (x in 1:length(matrix[1,])) {
+          for (y in 1:length(matrix[1,])) {
+            if(matrix[x,y]!=0 & matrix[y,x]!=0) {
+              edge.curved[i] = 0.5
+            }  
+            if(matrix[x,y]!=0) {
+              i = i+1
+            }
+          }
+        }
+        
+        
+        matrix.plot_pos_weights <- matrix.plot
+        igraph::E(matrix.plot_pos_weights)$weight <- abs(igraph::E(matrix.plot_pos_weights)$weight)
+        
+        layout <- igraph::layout_with_lgl(matrix.plot_pos_weights)
+        
+        igraph::tkplot(matrix.plot,edge.width = abs(igraph::E(matrix.plot)$weight*(5/Q11)), vertex.color="gray80",
+                       vertex.label.color = "dodgerblue",vertex.label=concept.names,vertex.label.dist=0,
+                       edge.curved = edge.curved,width = 500,height = 500)
+        
+      }
+      
+      if (tolower(Q10) == "y") {
+        graph.fcm(value_agg,
+                  concept.sizes = 1,
+                  concept.names = colnames(value_agg))
+      } else if (tolower(Q10) == "n") {
+        readline(prompt = "Continuing without making a graph.")
+      }
+      
+
+      
+      ##### A9. Exporting files
+      ##### A9.1 Exporting the file with a list of the counts per connection made
+      base_excel_filename1 <- paste0("ind_count_matrices_", Q2, "_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel1 <- paste0(base_excel_filename1, counter_suffix, ".xlsx")
+        if (!file.exists(excel1)) {
+          break
+        }
+      }
+      
+      if (tolower(Q4) == "y") {
+        wb <- createWorkbook()
+        for (i in seq_along(list_count)) {
+          addWorksheet(wb, sheetName = paste0(short_names[i], "_count"))
+          writeData(wb, sheet = i, x = list_count[[i]], startRow = 1, startCol = 1, rowNames = TRUE)
+        }
+        saveWorkbook(wb, file = excel1)
+        cat("File saved as", excel1, "\n")
+      } else if (tolower(Q4) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.\n")
+      }
+      
+      
+      ##### A9.2 Exporting excel file with the count aggregate and aggregate of connections
+      base_excel_filename2 <- paste0("2.matrix_agg_", Q2,"_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel2 <- paste0(base_excel_filename2, counter_suffix, ".xlsx")
+        if (!file.exists(excel2)) {
+          break
+        }
+      }
+      
+      if (tolower(Q5) == "y" || tolower(Q7) == "y") {
+        wb <- createWorkbook()
+        
+        #count aggregate
+        addWorksheet(wb, sheetName = "count_agg")
+        data1 <- get(paste0("count_agg_", Q2,"_Total"))
+        data1 <- data.frame(Element = row.names(data1), data1, row.names = NULL)
+        writeData(wb, sheet = 1, x = data1)
+        
+        #sum of value aggregate
+        if (tolower(Q5) == "y" || tolower(Q7) == "y") {
+          addWorksheet(wb, sheetName = "sum_of_values")
+          data2 <- value_with_cn
+          data2 <- data.frame(Element = row.names(data2), data2, row.names = concept_names_agg)
+          writeData(wb, sheet = "sum_of_values", x = data2)
+        }
+        
+        #average of value aggregate
+        if (tolower(Q7) == "y") {
+          addWorksheet(wb, sheetName = "avg_value_agg")
+          data3 <- get(paste0("value_agg_", Q2, "_Total"))
+          data3 <- data.frame(Element = row.names(data3), data3, row.names = NULL)
+          writeData(wb, sheet = "avg_value_agg", x = data3)
+        }
+        
+        saveWorkbook(wb, file = excel2)
+        cat("File saved as", excel2, "\n")
+      } else if (tolower(Q5) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      
+      ##### A9.3.1 Exporting excel connections with values
+      base_excel_filename3 <- paste0("ind_value_matrices_", Q2, "_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel3 <- paste0(base_excel_filename3, counter_suffix, ".xlsx")
+        if (!file.exists(excel3)) {
+          break
+        }
+      }
+      
+      if (tolower(Q6) == "y") {
+        wb <- createWorkbook()
+        for (i in seq_along(list_value)) {
+          addWorksheet(wb, sheetName = paste0(short_names[i], "_value"))
+          writeData(wb, sheet = i, x = list_value[[i]], startRow = 1, startCol = 1, rowNames = TRUE)
+        }
+        
+        for (i in seq_along(connections_with_values_list)) {
+          addWorksheet(wb, sheetName = paste0(short_names[i], "_con_with_values"))
+          writeData(wb, sheet = i + length(list_value), x = connections_with_values_list[[i]], startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        saveWorkbook(wb, file = excel3)
+        cat("File saved as", excel3, "\n")
+      } else if (tolower(Q6) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      ##### A9.3.2 exporting csv of value aggregate with connections made
+      csv_file <- paste0("3.value_agg_", Q2, "_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        csv_export <- paste0(csv_file, counter_suffix, ".csv")
+        if (!file.exists(csv_export)) {
+          break
+        }
+      }
+      
+      if (tolower(Q7) == "y") {
+        write.csv(value_agg, file = csv_export, row.names = FALSE)
+        cat("File saved as", csv_export, "\n")
+      } else if (tolower(Q7) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      ##### A9.4 exporting excel with connections made
+      base_excel_filename4 <- paste0("4.connections_made_", Q2, "_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel4 <- paste0(base_excel_filename4, counter_suffix, ".xlsx")
+        if (!file.exists(excel4)) {
+          break
+        }
+      }
+      
+      if (tolower(Q5) == "y" || tolower(Q7) == "y") {
+        wb <- createWorkbook()
+        
+        if (tolower(Q5) == "y" && tolower(Q7) == "n") {
+        addWorksheet(wb, sheetName = "Connections_made_by_SHs")
+        data_to_export <- merged_per_connections[, 1:3]
+        data_to_export <- as.data.frame(data_to_export)
+        writeData(wb, sheet = "Connections_made_by_SHs", x = data_to_export, startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        
+        if (tolower(Q5) == "n" && tolower(Q7) == "y") {
+        addWorksheet(wb, sheetName = "Connections_made_by_SHs")
+        data_to_export <- merged_per_connections[, c(1,2,4,5)]
+        data_to_export <- as.data.frame(data_to_export)
+        writeData(wb, sheet = "Connections_made_by_SHs", x = data_to_export, startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        
+        if (tolower(Q5) == "y" && tolower(Q7) == "y"){
+        addWorksheet(wb, sheetName = "Connections_made_by_SHs")
+        data_to_export <- merged_per_connections
+        data_to_export <- as.data.frame(data_to_export)
+        writeData(wb, sheet = "Connections_made_by_SHs", x = data_to_export, startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        saveWorkbook(wb, file = excel4)
+        cat("File saved as", excel4, "\n")
+        
+      } else if (tolower(Q5) == "n" && tolower(Q7) == "n") {
+        cat("Table not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      
+      ##### A9.5 Exporting individual and aggregate concept and matrix indices
+      ##### A9.5.1 Exporting the individual concept and matrix indicices
+      base_excel_filename5 <- paste0("6.individual_ci_and_mi_", Q2, "_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel5 <- paste0(base_excel_filename5, counter_suffix, ".xlsx")
+        if (!file.exists(excel5)) {
+          break
+        }
+      }
+      
+      if (tolower(Q8) == "y") {
+        wb <- createWorkbook()
+        for (i in seq_along(list_concept_indices)) {
+          sheet_name <- paste0(short_names[i], "_ci")
+          addWorksheet(wb, sheetName = sheet_name)
+          data <- list_concept_indices[[i]]
+          data <- data.frame(element = row.names(data), data, row.names = NULL)
+          writeData(wb, sheet = sheet_name, x = data)
+        }
+        for (i in seq_along(list_matrix_indices)) {
+          sheet_name <- paste0(short_names[i], "_mi")
+          addWorksheet(wb, sheetName = sheet_name)
+          writeData(wb, sheet = sheet_name, x = list_matrix_indices[[i]])
+        }
+        saveWorkbook(wb, file = excel5)
+        cat("File saved as", excel5, "\n")
+      } else if (tolower(Q8) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      ##### A9.5.2 Exporting the aggregate concept and matrix indices
+      base_excel_filename6 <- paste0("5.aggregate_ci_and_mi_", Q2, "_Total")
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel6 <- paste0(base_excel_filename6, counter_suffix, ".xlsx")
+        if (!file.exists(excel6)) {
+          break
+        }
+      }
+      
+      if (tolower(Q9) == "y") {
+        wb <- createWorkbook()
+        addWorksheet(wb, sheetName = "Concept Indices")
+        data <- concept_indices_agg
+        data <- data.frame(element = row.names(data), data, row.names = NULL)
+        writeData(wb, sheet = "Concept Indices", x = data)
+        addWorksheet(wb, sheetName = "Matrix Indices")
+        writeData(wb, sheet = "Matrix Indices", x = matrix_indices_agg)
+        saveWorkbook(wb, file = excel6)
+        cat("File saved as", excel6, "\n")
+      } else if (tolower(Q9) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+    } else {
+      
+      current_subdirectory <- subdirectories[[j]]
+      
+      setwd(current_subdirectory)
+      cat("Processing subdirectory:", basename(current_subdirectory), "\n")
+      
+      files <- list.files(".", pattern='.csv', recursive=TRUE)
+      files <- files[!grepl("value_agg_", files)]
+      
+      number_of_files = length(files)
+      
+      short_names <- gsub(".*/(.*?)\\.csv", "\\1", files)      
+      
+      
+      
+      ##### B4. Counting the number of connections in all FCMs
+      ##### B4.1 Making a list with  dataframes of all SHs with the number of connections
+      list_count <- lapply(files, read.csv)
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_count[[i]][is.na(list_count[[i]])] = 0.0
+        list_count[[i]] <- list_count[[i]] %>% mutate_if(is.numeric, ~1 * (. != 0))
+        list_count[[i]] = list_count[[i]][,-1]
+        rownames(list_count[[i]]) = colnames(list_count[[i]])
+        
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_count)) {
+        names(list_count)[i] <- paste0(short_names[i], "_count")
+        
+        i = i + 1
+      }
+      
+      
+      
+      ##### B4.2 Making an aggregate of all the concept names in the FCMs
+      list_colnames <- sapply(list_count, function(x) if(is.data.frame(x)){
+        list(colnames(x))
+      }else{
+        sapply(x, colnames)
+      })
+      
+      concept_names_agg = as.character(unlist(list_colnames))
+      concept_names_agg = unique(concept_names_agg)
+      
+      
+      ##### B4.3 Making a data frame with the sum of all connections in the FCMs
+      ##### B4.3.1 Making a list with dfs with all concept names and number of connections per SH
+      count_agg_list <- list()
+      
+      for (i in 1:length(list_count)) {
+        current_df <- list_count[[i]]
+        count_with_cn <- matrix(0, ncol = length(concept_names_agg), nrow = length(concept_names_agg))
+        colnames(count_with_cn) <- concept_names_agg
+        rownames(count_with_cn) <- concept_names_agg
+        for (x in 1:length(list_colnames[[i]])) {
+          for (y in 1:length(list_colnames[[i]])) {
+            count_with_cn[list_colnames[[i]][x], list_colnames[[i]][y]] <- 
+              current_df[list_colnames[[i]][x], list_colnames[[i]][y]]
+          }
+        }
+        count_agg_list[[i]] <- as.data.frame(count_with_cn)
+        names(count_agg_list)[i] <- paste0(short_names[i],'_count_with_all_cn')
+      }
+      
+      ##### B4.3.2.1 Making a data frame with the sum of all the connections
+      count_with_cn [] <- 0
+      assign(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]), count_with_cn)
+      
+      for (i in 1:length(count_agg_list)) {
+        current_df <- count_agg_list[[i]]
+        count_with_cn <- get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]))
+        for (x in 1:nrow(current_df)) {
+          for (y in 1:ncol(current_df)) {
+            rowname <- rownames(current_df)[x]
+            colname <- colnames(current_df)[y]
+            count_with_cn[rowname, colname] <- count_with_cn[rowname, colname] + current_df[x, y]
+          }
+        }
+        assign(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]), count_with_cn)
+      }
+      
+      assign(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]), as.data.frame(get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]))))
+      
+      ##### B4.3.2.2 Making a data frame with all connections made by SHs
+      nonzero_connections <- which(get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]])) != 0, arr.ind = TRUE)
+      
+      rows <- nonzero_connections[, 1]
+      columns <- nonzero_connections[, 2]
+      
+      sending_elements <- names(get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]])))[rows]
+      receiving_elements <- names(get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]])))[columns]
+      
+      connection_df <- data.frame(
+        Sending_elements = sending_elements,
+        Receiving_elements = receiving_elements,
+        Number_of_Connections = get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]))[nonzero_connections]
+      )
+      
+      connection_df <- connection_df %>%
+        group_by(Sending_elements, Receiving_elements) %>%
+        summarize(Number_of_Connections = sum(Number_of_Connections))
+      
+      
+      
+      ##### B5. Counting the number of connections per element
+      ##### B5.1 Counting the number of transmitting connection per element in the FCMs
+      count_agg_N <- get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]))
+      row_sums <- rowSums(count_agg_N)
+      row_sums <- as.data.frame(row_sums)
+      colnames(row_sums) <- 'Number of transmitting connections'
+      
+      
+      ##### B5.2 Counting the number of receiving connection per element in the FCMs
+      col_sums <- colSums(count_agg_N)
+      col_sums <- as.data.frame(col_sums)
+      colnames(col_sums) <- 'Number of receiving connections'
+      
+      
+      ##### B5.3 Total sum of connection per element in the FCms
+      total_sum <- row_sums + col_sums
+      total_sum <- as.data.frame(total_sum)
+      colnames(total_sum) <- 'Total number of connections'
+      
+      
+      ##### B5.4 Number of times a element is mentioned by the SHs in the FCMs and also in relative terms
+      word_counts <- table(factor(unlist(list_colnames), levels = unique(unlist(list_colnames))))
+      word_counts <- as.data.frame(word_counts)
+      word_counts <- as.character(word_counts$Freq)
+      word_counts <- as.data.frame(word_counts)
+      rownames(word_counts) = concept_names_agg
+      colnames(word_counts) <- 'Number of times mentioned by stakeholders'
+      
+      rel_word_counts <- table(factor(unlist(list_colnames), levels = unique(unlist(list_colnames))))
+      rel_word_counts <- as.numeric(as.character(rel_word_counts))
+      relative_frequency <- rel_word_counts / number_of_files * 100
+      relative_frequency <- as.data.frame(relative_frequency)
+      rownames(relative_frequency) = concept_names_agg
+      colnames(relative_frequency) <- '% of times mentioned by stakeholders'
+      
+      
+      
+      ##### B6. Making a data frame with all the combined values of connections of all FCMs
+      ##### B6.1.1 Making a list with  data frames of all SHs with the values per connection
+      list_value <- lapply(files, read.csv)
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_value[[i]][is.na(list_value[[i]])] = 0.0
+        list_value[[i]] = list_value[[i]][,-1] * Q11
+        rownames(list_value[[i]]) = colnames(list_value[[i]])
+        
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_value)) {
+        names(list_value)[i] <- paste0(short_names[i])
+        
+        i = i + 1
+      }
+      
+      ##### B6.1.2 Making a data frame with all connections with values made per Sh
+      connections_with_values_list <- list()
+      
+      for (i in 1:length(list_value)) {
+        current_df <- list_value[[i]]
+        current_nonzero_connections <- which(current_df != 0, arr.ind = TRUE)
+        sending_elements <- rownames(current_df)[current_nonzero_connections[, 1]]
+        receiving_elements <- colnames(current_df)[current_nonzero_connections[, 2]]
+        values <- current_df[current_nonzero_connections]
+        
+        connections_with_values_df <- data.frame(
+          Sending_elements = sending_elements,
+          Receiving_elements = receiving_elements,
+          Values = values
+        )
+        
+        connections_with_values_list[[i]] <- connections_with_values_df
+      }
+      
+      
+      
+      ##### B6.2 Making a data frame with the sum of all values in the FCMs
+      ##### B6.2.1 Making a list with dfs with all concept names and values per connection per SH
+      value_agg_list <- list()
+      
+      for (i in 1:length(list_value)) {
+        current_df <- list_value[[i]]
+        value_with_cn <- matrix(0, ncol = length(concept_names_agg), nrow = length(concept_names_agg))
+        colnames(value_with_cn) <- concept_names_agg
+        rownames(value_with_cn) <- concept_names_agg
+        for (x in 1:length(list_colnames[[i]])) {
+          for (y in 1:length(list_colnames[[i]])) {
+            value_with_cn[list_colnames[[i]][x], list_colnames[[i]][y]] <- 
+              current_df[list_colnames[[i]][x], list_colnames[[i]][y]]
+          }
+        }
+        value_agg_list[[i]] <- as.data.frame(value_with_cn)
+        names(value_agg_list)[i] <- paste0('value_with_all_concept_names', i)
+      }
+      
+      
+      ##### B6.2.2 Making a data frame with the sum of all the values divided by the number of mentioning
+      value_with_cn [] <- 0
+      assign(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]), value_with_cn)
+      
+      for (i in 1:length(value_agg_list)) {
+        current_df <- value_agg_list[[i]]
+        value_with_cn <- get(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]))
+        for (x in 1:nrow(current_df)) {
+          for (y in 1:ncol(current_df)) {
+            rowname <- rownames(current_df)[x]
+            colname <- colnames(current_df)[y]
+            value_with_cn[rowname, colname] <- value_with_cn[rowname, colname] + current_df[x, y]
+          }
+        }
+        assign(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]), value_with_cn)
+      }
+      
+      assign(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]), as.data.frame(get(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]))))
+      
+      value_with_cn <- get(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]))
+      count_with_cn <- get(paste0("count_agg_", Q2, "_", stakeholdercategories[[j]]))
+      
+      result_agg <- value_with_cn / count_with_cn
+      result_agg[is.na(result_agg)] <- 0.0
+      result_agg <- as.matrix(result_agg)
+      assign(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]), result_agg)
+      
+      ##### B6.2.3 Making a data frame with all the connections
+      list_for_sum_con <- list()
+      
+      for (i in 1:length(list_value)) {
+        current_df <- list_value[[i]]
+        current_nonzero_connections <- which(current_df != 0, arr.ind = TRUE)
+        sending_elements <- rownames(current_df)[current_nonzero_connections[, 1]]
+        receiving_elements <- colnames(current_df)[current_nonzero_connections[, 2]]
+        values <- current_df[current_nonzero_connections]
+        
+        connections_with_values_df <- data.frame(
+          Sending_elements = sending_elements,
+          Receiving_elements = receiving_elements,
+          Values = values
+        )
+        
+        list_for_sum_con[[i]] <- connections_with_values_df
+      }    
+      
+      list_for_sum_con <- lapply(list_for_sum_con, function(df) {
+        df$Values <- as.numeric(df$Values)
+        return(df)
+      })
+      
+      df_for_sum_con <- bind_rows(list_for_sum_con)
+      
+      df_sum_con <- df_for_sum_con %>%
+        group_by(Sending_elements, Receiving_elements) %>%
+        summarise(Sum_Values = sum(Values))
+      
+      ##### B6.2.4 Making a data frame with all the connections and the average values
+      nonzero_connections <- which(result_agg != 0, arr.ind = TRUE)
+      
+      rows <- nonzero_connections[, 1]
+      columns <- nonzero_connections[, 2]
+      
+      sending_elements <- rownames(result_agg)[rows]
+      receiving_elements <- colnames(result_agg)[columns]
+      values <- result_agg[nonzero_connections]
+      
+      connections_with_values_df <- data.frame(
+        Sending_elements = sending_elements,
+        Receiving_elements = receiving_elements,
+        Avg_Values = values
+      )
+      
+      connections_with_values_df <- connections_with_values_df %>%
+        group_by(Sending_elements, Receiving_elements)
+      
+      connections_with_values_df <- connections_with_values_df %>%
+        group_by(Sending_elements, Receiving_elements) %>%
+        summarize (Avg_Values = sum(Avg_Values))
+      
+      merged_per_connections <- connection_df %>%
+        left_join(connections_with_values_df, by = c("Sending_elements", "Receiving_elements")) %>%
+        left_join(df_sum_con, by = c("Sending_elements", "Receiving_elements"))
+      merged_per_connections[is.na(merged_per_connections)] <- 0.0 
+      
+      
+      
+      ##### B7. Concept indices and matrix indices of the combined FCM
+      ##### B7.1.1 Defining the correct item for the matrix indices
+      matrix.indices = function(matrix) {
+        Connections = length(which(matrix != 0))
+        Concepts = length(matrix[1,])
+        Density = Connections / (Concepts * (Concepts - 1))
+        Transmitters = length(which(colSums(abs(matrix)) == 0 & rowSums(abs(matrix)) != 0))
+        Receivers = length(which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) != 0))
+        NoConnection = length(which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) == 0))
+        Ordinary = Concepts - Transmitters - Receivers - NoConnection
+        SelfLoops = 0
+        for (i in 1:Concepts) {
+          if (matrix[i, i] != 0) {
+            SelfLoops = SelfLoops + 1
+          }
+        }
+        Connectionsperelement = Connections / length(matrix[1,])
+        
+        Value = c(Concepts, Connections, Density, Receivers, Transmitters,
+                  Ordinary, Connectionsperelement, NoConnection, SelfLoops)
+        Index = c("Number of concepts", "Number of connections", "Connection density", "Number of receivers", "Number of transmitters",
+                  "Number of ordinary", "Connections/element", "Number of no connections", "Number of self loops")
+        return (data.frame(Index, Value))
+      }
+      
+      ##### B7.1.2 Defining the correct items for the concept indices aggregate
+      concept.indices.agg = function(matrix1, matrix2, concept.names) {
+        
+        Outdegreeofavg = rowSums(abs(matrix1))
+        Outdegreeofsum = rowSums(abs(matrix2))
+        PosOutdegreeofsum = rowSums(matrix2 * (matrix2 > 0))
+        NegOutdegreeofsum = rowSums(matrix2 * (matrix2 < 0))
+        Indegreeofavg = colSums(abs(matrix1))
+        Indegreeofsum = colSums(abs(matrix2))
+        PosIndegreeofsum = colSums(matrix2 * (matrix2 > 0))
+        NegIndegreeofsum = colSums(matrix2 * (matrix2 < 0))
+        Centralityofavg = Outdegreeofavg + Indegreeofavg
+        Centralityofsum = Outdegreeofsum + Indegreeofsum
+        PosCentralityofsum = PosOutdegreeofsum + PosIndegreeofsum
+        NegCentralityosum = NegOutdegreeofsum + NegIndegreeofsum
+        Concept = length(matrix1[1,])
+        Transmitter = numeric(length=Concept)
+        Transmitter[which(colSums(abs(matrix1))==0 & rowSums(abs(matrix1))!=0)] = 1
+        Receiver = numeric(length=Concept)
+        Receiver[which(rowSums(abs(matrix1))==0 & colSums(abs(matrix1))!=0)] = 1
+        Ordinary = numeric(length=Concept)
+        Ordinary[which(rowSums(abs(matrix1))!=0 & colSums(abs(matrix1))!=0)] = 1
+        NoConnection = numeric(length=Concept)
+        NoConnection[which(rowSums(abs(matrix1))==0 & colSums(abs(matrix1))==0)] = 1
+        Wordcount = word_counts
+        RelWordcount = relative_frequency
+        NrofTransmitting = row_sums
+        NrofReceiving = col_sums
+        TotalNrofConnections = total_sum
+        
+        Index = c("Concept","Nr.of.times.mentioned","Percentage.of.times.mentioned","Nr.of.transmitting.connections","Outdegree.of.avg",
+                  "Outdegree.of.sum","Pos.Outdegree.of.sum","Neg.Outdree.of.sum","Nr.of.receiving.connections",
+                  "Indegree.of.avg","Indegree.of.sum","Pos.Indegree.of.sum","Neg.Indegree.of.sum","Total.connections",
+                  "Centrality.of.avg","Centrality.of.sum","Pos.Centrality.of.sum","Neg.Centrality.of.sum","Transmitter","Receiver","Ordinary","Not.connected")
+        Values = data.frame(concept.names,Wordcount,RelWordcount,NrofTransmitting,Outdegreeofavg,Outdegreeofsum,PosOutdegreeofsum,
+                            NegOutdegreeofsum,NrofReceiving,Indegreeofavg,Indegreeofsum,PosIndegreeofsum,NegIndegreeofsum,
+                            TotalNrofConnections,Centralityofavg,Centralityofsum,PosCentralityofsum,NegCentralityosum,Transmitter,Receiver,Ordinary,NoConnection)
+        colnames(Values) = Index
+        return (Values)
+        
+      }
+      
+      ##### B7.1.3 Defining the correct items for the concept indices individual
+      concept.indices.ind = function(matrix, concept.names) {
+        Outdegree = rowSums(abs(matrix))
+        Indegree = colSums(abs(matrix))
+        Centrality = Outdegree + Indegree
+        Concept = length(matrix[1,])
+        Transmitter = numeric(length = Concept)
+        Transmitter[which(colSums(abs(matrix)) == 0 & rowSums(abs(matrix)) != 0)] = 1
+        Receiver = numeric(length = Concept)
+        Receiver[which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) != 0)] = 1
+        Ordinary = numeric(length = Concept)
+        Ordinary[which(rowSums(abs(matrix)) != 0 & colSums(abs(matrix)) != 0)] = 1
+        NoConnection = numeric(length = Concept)
+        NoConnection[which(rowSums(abs(matrix)) == 0 & colSums(abs(matrix)) == 0)] = 1
+        
+        NrofTransmitting = rowSums(matrix != 0)
+        NrofReceiving = colSums(matrix != 0)
+        TotalNrofConnections = NrofTransmitting + NrofReceiving
+        
+        Index = c("Nr.of.transmitting.connections", "Outdegree",
+                  "Nr.of.receiving.connections", "Indegree", "Total.connections", "Centrality",
+                  "Transmitter", "Receiver", "Ordinary", "Not connected")
+        
+        Values = data.frame(NrofTransmitting, Outdegree,
+                            NrofReceiving, Indegree, TotalNrofConnections, Centrality,
+                            Transmitter, Receiver, Ordinary, NoConnection)
+        
+        colnames(Values) = Index
+        return(Values)
+      }
+      
+      ##### B7.2.1 Concept indices of seperate FCMs
+      list_concept_indices <- list()
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_concept_indices[[i]] <- concept.indices.ind(list_value[[i]], colnames(list_value[[i]]))
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_concept_indices)) {
+        names(list_concept_indices)[i] <- paste0(short_names[i])
+        
+        i = i + 1
+      }
+      
+      ##### B7.2.2 Concept indices of the combined FCM
+      value_agg <- get(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]))
+      
+      concept_indices_agg = concept.indices.agg(value_agg, value_with_cn,
+                                                colnames(value_agg))
+      concept_indices_agg <- concept_indices_agg[, -1]
+      
+      
+      ##### B7.3.1 Matrix indices of seperate FCMs
+      list_matrix_indices <- list()
+      
+      i = 1
+      while (i <= number_of_files) {
+        list_matrix_indices[[i]] <- matrix.indices(list_value[[i]])
+        i = i + 1
+      }
+      
+      i = 1
+      for(i in 1:length(list_matrix_indices)) {
+        names(list_matrix_indices)[i] <- paste0(short_names[i])
+        
+        i = i + 1
+      }
+      
+      ##### B7.3.2 Matrix indices of the combined FCM
+      matrix_indices_agg <- matrix.indices(value_agg)
+      
+      
+      
+      ##### B8. Graph of combined FCM
+      graph.fcm = function (matrix, concept.sizes, concept.names) {
+        
+        matrix.plot = igraph::graph.adjacency(matrix,mode="directed",weighted=T) 
+        
+        igraph::V(matrix.plot)$size = concept.sizes * 40
+        
+        
+        igraph::E(matrix.plot)$color = ifelse(igraph::E(matrix.plot)$weight<0,"red","chartreuse3")
+        edge.labels = ifelse(igraph::E(matrix.plot)$weight<0,"-","+")
+        
+        edge.curved = rep(0,length(igraph::E(matrix.plot)))
+        i=1
+        for (x in 1:length(matrix[1,])) {
+          for (y in 1:length(matrix[1,])) {
+            if(matrix[x,y]!=0 & matrix[y,x]!=0) {
+              edge.curved[i] = 0.5
+            }  
+            if(matrix[x,y]!=0) {
+              i = i+1
+            }
+          }
+        }
+        
+        
+        matrix.plot_pos_weights <- matrix.plot
+        igraph::E(matrix.plot_pos_weights)$weight <- abs(igraph::E(matrix.plot_pos_weights)$weight)
+        
+        layout <- igraph::layout_with_lgl(matrix.plot_pos_weights)
+        
+        igraph::tkplot(matrix.plot,edge.width = abs(igraph::E(matrix.plot)$weight*(5/Q11)), vertex.color="gray80",
+                       vertex.label.color="dodgerblue",vertex.label=concept.names,vertex.label.dist=0,
+                       edge.curved=edge.curved,width = 500,height = 500)
+        
+      }
+      
+      if (tolower(Q10) == "y") {
+        graph.fcm(value_agg,
+                  concept.sizes = 1,
+                  concept.names = colnames(value_agg))
+      } else if (tolower(Q10) == "n") {
+        readline(prompt = "Continuing without making a graph.")
+      }
+   
+         
+
+      ##### B9. Exporting files
+      ##### B9.1 Exporting excel file with the count aggregate and aggregate of connections
+      base_excel_filename2 <- paste0("2.matrix_agg_", Q2,"_", stakeholdercategories[[j]])
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel2 <- paste0(base_excel_filename2, counter_suffix, ".xlsx")
+        if (!file.exists(excel2)) {
+          break
+        }
+      }
+      
+      if (tolower(Q5) == "y" || tolower(Q7) == "y") {
+        wb <- createWorkbook()
+        
+        #count aggregate
+        addWorksheet(wb, sheetName = "count_agg")
+        data1 <- get(paste0("count_agg_", Q2,"_", stakeholdercategories[[j]]))
+        data1 <- data.frame(Element = row.names(data1), data1, row.names = NULL)
+        writeData(wb, sheet = 1, x = data1)
+        
+        #sum of value aggregate
+        if (tolower(Q5) == "y" || tolower(Q7) == "y") {
+          addWorksheet(wb, sheetName = "sum_of_values")
+          data2 <- value_with_cn
+          data2 <- data.frame(Element = row.names(data2), data2, row.names = concept_names_agg)
+          writeData(wb, sheet = "sum_of_values", x = data2)
+        }
+        
+        #average of value aggregate
+        if (tolower(Q7) == "y") {
+          addWorksheet(wb, sheetName = "avg_value_agg")
+          data3 <- get(paste0("value_agg_", Q2, "_", stakeholdercategories[[j]]))
+          data3 <- data.frame(Element = row.names(data3), data3, row.names = NULL)
+          writeData(wb, sheet = "avg_value_agg", x = data3)
+        }
+        
+        saveWorkbook(wb, file = excel2)
+        cat("File saved as", excel2, "\n")
+      } else if (tolower(Q5) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      
+      ##### B9.2 exporting csv of value aggregate with connections made
+      csv_file <- paste0("3.value_agg_", Q2, "_", stakeholdercategories[[j]])
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        csv_export <- paste0(csv_file, counter_suffix, ".csv")
+        if (!file.exists(csv_export)) {
+          break
+        }
+      }
+      
+      if (tolower(Q7) == "y") {
+        write.csv(value_agg, file = csv_export, row.names = FALSE)
+        cat("File saved as", csv_export, "\n")
+      } else if (tolower(Q7) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      ##### B9.4 exporting excel with connections made
+      base_excel_filename4 <- paste0("4.connections_made_", Q2, "_", stakeholdercategories[[j]])
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel4 <- paste0(base_excel_filename4, counter_suffix, ".xlsx")
+        if (!file.exists(excel4)) {
+          break
+        }
+      }
+      
+      if (tolower(Q5) == "y" || tolower(Q7) == "y") {
+        wb <- createWorkbook()
+        
+        if (tolower(Q5) == "y" && tolower(Q7) == "n") {
+          addWorksheet(wb, sheetName = "Connections_made_by_SHs")
+          data_to_export <- merged_per_connections[, 1:3]
+          data_to_export <- as.data.frame(data_to_export)
+          writeData(wb, sheet = "Connections_made_by_SHs", x = data_to_export, startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        
+        if (tolower(Q5) == "n" && tolower(Q7) == "y") {
+          addWorksheet(wb, sheetName = "Connections_made_by_SHs")
+          data_to_export <- merged_per_connections[, c(1,2,4,5)]
+          data_to_export <- as.data.frame(data_to_export)
+          writeData(wb, sheet = "Connections_made_by_SHs", x = data_to_export, startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        
+        if (tolower(Q5) == "y" && tolower(Q7) == "y"){
+          addWorksheet(wb, sheetName = "Connections_made_by_SHs")
+          data_to_export <- merged_per_connections
+          data_to_export <- as.data.frame(data_to_export)
+          writeData(wb, sheet = "Connections_made_by_SHs", x = data_to_export, startRow = 1, startCol = 1, rowNames = FALSE)
+        }
+        saveWorkbook(wb, file = excel4)
+        cat("File saved as", excel4, "\n")
+        
+      } else if (tolower(Q5) == "n" && tolower(Q7) == "n") {
+        cat("Table not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      
+      ##### B9.5 Exporting individual and aggregate concept and matrix indices
+      ##### B9.5.1 Exporting the individual concept and matrix indicices
+      base_excel_filename5 <- paste0("6.individual_ci_and_mi_", Q2, "_", stakeholdercategories[[j]])
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel5 <- paste0(base_excel_filename5, counter_suffix, ".xlsx")
+        if (!file.exists(excel5)) {
+          break
+        }
+      }
+      
+      if (tolower(Q8) == "y") {
+        wb <- createWorkbook()
+        for (i in seq_along(list_concept_indices)) {
+          sheet_name <- paste0(short_names[i], "_ci")
+          addWorksheet(wb, sheetName = sheet_name)
+          data <- list_concept_indices[[i]]
+          data <- data.frame(element = row.names(data), data, row.names = NULL)
+          writeData(wb, sheet = sheet_name, x = data)
+        }
+        for (i in seq_along(list_matrix_indices)) {
+          sheet_name <- paste0(short_names[i], "_mi")
+          addWorksheet(wb, sheetName = sheet_name)
+          writeData(wb, sheet = sheet_name, x = list_matrix_indices[[i]])
+        }
+        saveWorkbook(wb, file = excel5)
+        cat("File saved as", excel5, "\n")
+      } else if (tolower(Q8) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }
+      
+      ##### B9.5.2 Exporting the aggregate concept and matrix indices
+      base_excel_filename6 <- paste0("5.aggregate_ci_and_mi_", Q2, "_", stakeholdercategories[[j]])
+      
+      counter <- 0
+      
+      repeat {
+        counter <- counter + 1
+        counter_suffix <- if (counter > 1) paste0("_", counter - 1) else ""
+        excel6 <- paste0(base_excel_filename6, counter_suffix, ".xlsx")
+        if (!file.exists(excel6)) {
+          break
+        }
+      }
+      
+      if (tolower(Q9) == "y") {
+        wb <- createWorkbook()
+        addWorksheet(wb, sheetName = "Concept Indices")
+        data <- concept_indices_agg
+        data <- data.frame(element = row.names(data), data, row.names = NULL)
+        writeData(wb, sheet = "Concept Indices", x = data)
+        addWorksheet(wb, sheetName = "Matrix Indices")
+        writeData(wb, sheet = "Matrix Indices", x = matrix_indices_agg)
+        saveWorkbook(wb, file = excel6)
+        cat("File saved as", excel6, "\n")
+      } else if (tolower(Q9) == "n") {
+        cat("Tables not exported.\n")
+      } else {
+        cat("Continuing without exporting the tables.")
+      }    
+    }
+    j = j + 1
+  }
+}
+
+saveRDS(FCM_Analysis, "FCM_Analysis")
