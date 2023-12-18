@@ -16,6 +16,8 @@ In ‘Script for FCM Analysis.R’ the script is divided in different chapters. 
 8. Graph of combined FCM;
 9. Exporting files
 
+To first start with FCM Analysis you can use the test data which is pretty randomly generated to represent the important aspects of cars from the viewpoint of critics, designers, prodicers, salespeople and users.
+
 A lot of the actual analysis comes from the R-package ‘FCMapper’, by Shaun Turney. This package has some other functions too, that have not been included in this function. More information can be found at: http://www.fcmappers.net/
 If any questions arise with working with the function ‘FCM Analysis’ you can send an e-mail to bsturm13@gmail.com. I will be glad to help.
 
