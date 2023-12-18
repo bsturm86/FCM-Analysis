@@ -1,0 +1,23 @@
+#################################################################################
+#####                 SHORT MANUAL FOR USING FCM ANALYSIS                   #####
+#####                                                                       #####
+#####       Before starting the analysis make a directory with all the      #####
+#####       .csv files you would like to analyse. You can make              #####
+#####       sub-directories per category. When you start running the        #####
+#####       script the analysis there will eleven questions which show      ##### 
+#####       up in the console. The first are about the directory in         #####
+#####       which the .csv files are stored and the topic of concern.       #####
+#####       The latter questions are about the exportation of data to       #####
+#####       excel files. These will be stored in the previously chosen      #####
+#####       working directory. The last question is about possible          #####
+#####       scaling of the values. In FCM normally the scal is between      #####
+#####       0-1, but it might be that you have used another scale to        #####
+#####       multiply the values. The table with the aggregate of the        #####
+#####       values of all FCMs will also be stored as a .csv file.          #####
+#####                                                                       #####
+#################################################################################
+
+setwd(choose.dir())
+
+FCM_Analysis <- readRDS("FCM_Analysis")
+FCM_Analysis()
