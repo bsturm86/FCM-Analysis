@@ -1,5 +1,5 @@
 FCM_Analysis <- function(N) {
-  
+
   ##### 1. Selecting the working directory and Questions concerning exporting analyzed data.
   readline(prompt = "Q1. Please press enter to select the directory with all relevant 
      .csv files and where to export data files of the analyses.")
